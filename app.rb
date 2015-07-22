@@ -71,6 +71,7 @@ def cognitive_search query, redis, token
             if checked_name and checked_name != 'false'
               results['results'][checked_name] ||= []
               results['results'][checked_name] << url
+              results['results'][checked_name] = results['results'][checked_name].uniq
             end
           end
           redis.setex(md5, 24*3600, results.to_json)
