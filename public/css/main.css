@@ -1,0 +1,17 @@
+body {
+  padding-top: 50px;
+}
+.starter-template {
+  padding: 40px 15px;
+  text-align: center;
+}
+.login {
+  display: none;
+}
+.content {
+  display: none;
+  padding: 15px;
+}
+.searching-button {
+  display: none;
+}
