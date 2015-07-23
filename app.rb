@@ -55,8 +55,11 @@ end
 
 post '/search' do
   query = normalize_query params[:q]
+  token = request.cookies['facebook_access_token']
   if query.present?
-    redis.lpush 'queries', { query: query, token: request.cookies['facebook_access_token'] }.to_json
+    graph = Koala::Facebook::API.new token
+    graph.get_object('/me')
+    redis.lpush 'queries', { query: query, token: token }.to_json
     { data: 'success' }.to_json    
   else
     { error: 'blank_query' }.to_json
@@ -102,9 +105,9 @@ def cognitive_search query, redis, token
         end
         relext = JSON.parse relext
         relext.each do |name|
-          results['results'][checked_name] ||= []
-          results['results'][checked_name] << url
-          results['results'][checked_name] = results['results'][checked_name].uniq
+          results['results'][name] ||= []
+          results['results'][name] << url
+          results['results'][name] = results['results'][name].uniq
         end
         results['progress'] = results['progress'].to_i + 1
         log "'#{query}' search progress is #{results['progress']}%"
@@ -121,22 +124,22 @@ def check_name! name, redis, token
   if redis.exists(md5)
     redis.get(md5)
   else
-    @graph ||= Koala::Facebook::API.new token
+    graph = Koala::Facebook::API.new token
     parts = name.split(/\s/)
     checked_name, fb_names = if parts.count == 2
-                               [name, @graph.get_object('search', q: name, type: 'user')]
+                               [name, graph.get_object('search', q: name, type: 'user')]
                              elsif parts.count == 3
-                               fb_names1 = @graph.get_object('search', q: "#{parts[0]} #{parts[1]}", type: 'user')
-                               fb_names2 = @graph.get_object('search', q: "#{parts[1]} #{parts[2]}", type: 'user')
+                               fb_names1 = graph.get_object('search', q: "#{parts[0]} #{parts[1]}", type: 'user')
+                               fb_names2 = graph.get_object('search', q: "#{parts[1]} #{parts[2]}", type: 'user')
                                if fb_names1.any?
                                  ["#{parts[0]} #{parts[1]}", fb_names1]
                                elsif fb_names2.any?
                                  ["#{parts[1]} #{parts[2]}", fb_names2]
                                end
                              elsif parts.count == 4
-                               fb_names1 = @graph.get_object('search', q: "#{parts[0]} #{parts[1]}", type: 'user')
-                               fb_names2 = @graph.get_object('search', q: "#{parts[1]} #{parts[2]}", type: 'user')
-                               fb_names3 = @graph.get_object('search', q: "#{parts[2]} #{parts[3]}", type: 'user')
+                               fb_names1 = graph.get_object('search', q: "#{parts[0]} #{parts[1]}", type: 'user')
+                               fb_names2 = graph.get_object('search', q: "#{parts[1]} #{parts[2]}", type: 'user')
+                               fb_names3 = graph.get_object('search', q: "#{parts[2]} #{parts[3]}", type: 'user')
                                if fb_names1.any?
                                  ["#{parts[0]} #{parts[1]}", fb_names1]
                                elsif fb_names2.any?
@@ -174,13 +177,20 @@ def get_relext url, redis, token
     if content_type.to_s =~ /text\/html/
       text = RestClient.get(url) rescue nil
       text = CGI.unescapeHTML(Sanitize.fragment(text.to_s, remove_contents: [:link, :style, :script]).squish) rescue nil
-      relext = JSON.parse(RestClient.post("http://ambroi.eu-gb.mybluemix.net/say/relext", text: text[0..10000]) if text) rescue nil
+      relext = if text
+        JSON.parse(RestClient.post("http://ambroi.eu-gb.mybluemix.net/say/relext", text: text[0..10000])) rescue nil
+      end
       relext = relext['doc']['mentions']['mention'].select {|m| m['role'] == 'PERSON' and m['mtype'] == 'NAM' and m['text'] =~ /\A([A-Z][a-z]+\s?){2,4}\Z/ }.map {|m| m['text'] } rescue []
-      relext = relext.map do |name|
-        log "RelExt checking name  #{name}"
-        checked_name = check_name!(name, redis, token) rescue false
-        check_name if check_name != false
-      end.compact
+        relext = relext.map do |name|
+          log "RelExt checking name #{name}"
+          checked_name = begin
+            check_name!(name, redis, token) 
+          rescue
+            log "RelExt Facebook Error while checking name #{name}" 
+            name
+          end
+          checked_name if checked_name != false and checked_name != 'false'
+        end.compact
       redis.setex(md5, 30*24*3600, relext.to_json)
     else
       redis.setex(md5, 30*24*3600, [].to_json)
