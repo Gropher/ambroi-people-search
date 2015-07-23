@@ -6,11 +6,14 @@ require 'rest-client'
 require 'active_support/all'
 require 'sanitize'
 
+
+REDIS_CONFIG={ host: '127.0.0.1', port: '6379', db: 1 }
+
 configure do
-  set :redis, Redis.new(host: '127.0.0.1', port: '6379', db: 1)
-  (1..10).each do |i|
+  set :redis, Redis.new(REDIS_CONFIG)
+  (1..3).each do |i|
     Thread.new do
-      redis = Redis.new(host: '127.0.0.1', port: '6379', db: 1)
+      redis = Redis.new(REDIS_CONFIG)
       log "Search Thread ##{i} started" 
       loop do
         query = redis.brpop('queries').last
@@ -26,19 +29,19 @@ configure do
       end
     end
   end
-  (1..8).each do |i|
+  (1..4).each do |i|
     Thread.new do
-      redis = Redis.new(host: '127.0.0.1', port: '6379', db: 1)
+      redis = Redis.new(REDIS_CONFIG)
       log "RelExt Thread ##{i} started" 
       loop do
-        url = redis.brpop('relext_requests').last
+        query = redis.brpop('relext_requests').last
         begin
-          log "RelExt Thread ##{i} processing url: #{url}"
-          relext = get_relext url, redis
-          redis.publish('relext', {url: url, relext: relext}.to_json)
-          log "RelExt Thread ##{i} finished url: #{url}"
+          log "RelExt Thread ##{i} processing query: #{query}"
+          parsed_query = JSON.parse query
+          get_relext parsed_query['url'], redis, parsed_query['token']
+          log "RelExt Thread ##{i} finished query: #{query}"
         rescue => e
-          log "RelExt Thread ##{i} can't process query #{url}: #{$!}"
+          log "RelExt Thread ##{i} can't process query #{query}: #{$!}"
           puts "RelExt Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
         end
       end
@@ -83,29 +86,29 @@ def cognitive_search query, redis, token
       yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1")
       urls = yandex['yandexsearch']['response']['results']['grouping']['group'].map {|doc| doc['doc']['url'] }
       urls.each do |url| 
-        redis.multi do |r|
-         r.lpush 'relext_requests', url
-        end
+        redis.lpush 'relext_requests', { url: url, token: token }.to_json
       end
-      redis.subscribe('relext') do |on|
-        on.message do |channel, msg|
-          message = JSON.parse msg
-          url = message['url']
-          relext = message['relext']
-          results['progress'] = results['progress'].to_i + 1
+      urls.each do |url|
+        relext = nil
+        loop do 
+          relext = redis.get "relext_#{Digest::MD5.hexdigest url}"
           if relext
-            names = relext['doc']['mentions']['mention'].select {|m| m['role'] == 'PERSON' and m['mtype'] = 'NAM' and m['text'] =~ /\A([A-Z][a-z]+\s?){2,4}\Z/ }.map {|m| m['text'] } rescue []
-            names.each do |name|
-              checked_name = check_name!(name, redis, token)
-              if checked_name and checked_name != 'false'
-                results['results'][checked_name] ||= []
-                results['results'][checked_name] << url
-                results['results'][checked_name] = results['results'][checked_name].uniq
-              end
-            end
-            redis.setex(md5, 24*3600, results.to_json)
+	    log "'#{query}' search got RelExt for #{url}"
+            break
+          else
+	    log "'#{query}' search is waiting for RelExt for #{url}"
+            sleep 5
           end
         end
+        relext = JSON.parse relext
+        relext.each do |name|
+          results['results'][checked_name] ||= []
+          results['results'][checked_name] << url
+          results['results'][checked_name] = results['results'][checked_name].uniq
+        end
+        results['progress'] = results['progress'].to_i + 1
+        log "'#{query}' search progress is #{results['progress']}%"
+        redis.setex(md5, 24*3600, results.to_json)
       end
       results['status'] = 'finished'
       redis.setex(md5, 24*3600, results.to_json)
@@ -121,27 +124,27 @@ def check_name! name, redis, token
     @graph ||= Koala::Facebook::API.new token
     parts = name.split(/\s/)
     checked_name, fb_names = if parts.count == 2
-      [name, @graph.get_object('search', q: name, type: 'user')]
-    elsif parts.count == 3
-      fb_names1 = @graph.get_object('search', q: "#{parts[0]} #{parts[1]}", type: 'user')
-      fb_names2 = @graph.get_object('search', q: "#{parts[1]} #{parts[2]}", type: 'user')
-      if fb_names1.any?
-        ["#{parts[0]} #{parts[1]}", fb_names1]
-      elsif fb_names2.any?
-        ["#{parts[1]} #{parts[2]}", fb_names2]
-      end
-    elsif parts.count == 4
-      fb_names1 = @graph.get_object('search', q: "#{parts[0]} #{parts[1]}", type: 'user')
-      fb_names2 = @graph.get_object('search', q: "#{parts[1]} #{parts[2]}", type: 'user')
-      fb_names3 = @graph.get_object('search', q: "#{parts[2]} #{parts[3]}", type: 'user')
-      if fb_names1.any?
-        ["#{parts[0]} #{parts[1]}", fb_names1]
-      elsif fb_names2.any?
-        ["#{parts[1]} #{parts[2]}", fb_names2]
-      elsif fb_names3.any?
-        ["#{parts[2]} #{parts[3]}", fb_names3]
-      end
-    end
+                               [name, @graph.get_object('search', q: name, type: 'user')]
+                             elsif parts.count == 3
+                               fb_names1 = @graph.get_object('search', q: "#{parts[0]} #{parts[1]}", type: 'user')
+                               fb_names2 = @graph.get_object('search', q: "#{parts[1]} #{parts[2]}", type: 'user')
+                               if fb_names1.any?
+                                 ["#{parts[0]} #{parts[1]}", fb_names1]
+                               elsif fb_names2.any?
+                                 ["#{parts[1]} #{parts[2]}", fb_names2]
+                               end
+                             elsif parts.count == 4
+                               fb_names1 = @graph.get_object('search', q: "#{parts[0]} #{parts[1]}", type: 'user')
+                               fb_names2 = @graph.get_object('search', q: "#{parts[1]} #{parts[2]}", type: 'user')
+                               fb_names3 = @graph.get_object('search', q: "#{parts[2]} #{parts[3]}", type: 'user')
+                               if fb_names1.any?
+                                 ["#{parts[0]} #{parts[1]}", fb_names1]
+                               elsif fb_names2.any?
+                                 ["#{parts[1]} #{parts[2]}", fb_names2]
+                               elsif fb_names3.any?
+                                 ["#{parts[2]} #{parts[3]}", fb_names3]
+                               end
+                             end
     if fb_names.present? and fb_names.map {|fb_name| levenshtein_distance checked_name, fb_name['name'] }.min < 2
       redis.setex(md5, 30*24*3600, checked_name)
       checked_name
@@ -164,19 +167,25 @@ def levenshtein_distance(a, b)
   costs[b.length]
 end
 
-def get_relext url, redis
+def get_relext url, redis, token
   md5 = "relext_#{Digest::MD5.hexdigest url}"
-  relext = redis.get md5
-  unless relext 
+  unless redis.exists md5
     content_type = RestClient.head(url).headers[:content_type] rescue nil
     if content_type.to_s =~ /text\/html/
       text = RestClient.get(url) rescue nil
       text = CGI.unescapeHTML(Sanitize.fragment(text.to_s, remove_contents: [:link, :style, :script]).squish) rescue nil
-      relext = RestClient.post("http://ambroi.eu-gb.mybluemix.net/say/relext", text: text[0..10000]) rescue nil
-      redis.setex(md5, 30*24*3600, relext) if relext.present?
+      relext = JSON.parse(RestClient.post("http://ambroi.eu-gb.mybluemix.net/say/relext", text: text[0..10000]) if text) rescue nil
+      relext = relext['doc']['mentions']['mention'].select {|m| m['role'] == 'PERSON' and m['mtype'] == 'NAM' and m['text'] =~ /\A([A-Z][a-z]+\s?){2,4}\Z/ }.map {|m| m['text'] } rescue []
+      relext = relext.map do |name|
+        log "RelExt checking name  #{name}"
+        checked_name = check_name!(name, redis, token) rescue false
+        check_name if check_name != false
+      end.compact
+      redis.setex(md5, 30*24*3600, relext.to_json)
+    else
+      redis.setex(md5, 30*24*3600, [].to_json)
     end
   end
-  JSON.parse(relext) rescue nil
 end
 
 def normalize_query query
@@ -189,7 +198,7 @@ def log msg
 end
 
 def empty_results
-  { 'status' => 'in_progress', 'results' => {}, 'progress' => 0 }
+  { 'status' => 'in_progress', 'results' => {}, 'progress' => 0 }.dup
 end
 
 def redis
