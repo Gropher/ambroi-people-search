@@ -44,7 +44,7 @@ end
 get '/search_results' do
   if params[:q].present?
     md5 = "results_#{Digest::MD5.hexdigest params[:q]}"
-    results = JSON.parse(redis.get md5) rescue {'status' => 'in_progress', 'results' => {}}
+    results = JSON.parse(redis.get md5) rescue {'status' => 'in_progress', 'results' => {}, 'progress' => 0}
     results['results'] = results['results'].map do |name, links|
       { name: name, links: links }
     end.compact.to_a.sort {|a,b| b[:links].count <=> a[:links].count } 
@@ -57,10 +57,11 @@ end
 def cognitive_search query, redis, token
   if query
     md5 = "results_#{Digest::MD5.hexdigest query}"
-    results = JSON.parse(redis.get md5) rescue {'status' => 'in_progress', 'results' => {}}
+    results = JSON.parse(redis.get md5) rescue {'status' => 'in_progress', 'results' => {}, 'progress' => 0}
     unless results['status'] == 'finished'
       yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1")
       yandex['yandexsearch']['response']['results']['grouping']['group'].each do |doc|
+        results['progress'] = results['progress'].to_i + 1
         url = doc['doc']['url']
         log "Processing URL: #{url}"
         relext = get_relext url, redis

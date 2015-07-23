@@ -32,10 +32,12 @@ function searchSubmit() {
         $.get('/search_results?q='+query, function(data){
           results = JSON.parse(data)['data'];
           if(results['status'] == 'finished') {
-            spinner.stop(); 
             $('.search-button').show();
             $('.searching-button').hide();
             clearInterval(interval_id);
+          }
+          if(results['progress'] > 0) {
+            $('.searching-button').html('Searching... ('+results['progress']+'%)');
           }
           $('.results').html('');
           $.each(results['results'], function(i, value) {
