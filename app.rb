@@ -59,6 +59,7 @@ def cognitive_search query, redis, token
     md5 = "results_#{Digest::MD5.hexdigest query}"
     results = JSON.parse(redis.get md5) rescue {'status' => 'in_progress', 'results' => {}, 'progress' => 0}
     unless results['status'] == 'finished'
+      results = {'status' => 'in_progress', 'results' => {}, 'progress' => 0}
       yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1")
       yandex['yandexsearch']['response']['results']['grouping']['group'].each do |doc|
         results['progress'] = results['progress'].to_i + 1
@@ -66,7 +67,7 @@ def cognitive_search query, redis, token
         log "Processing URL: #{url}"
         relext = get_relext url, redis
         if relext
-          names = relext['doc']['mentions']['mention'].select {|m| m['role'] == 'PERSON' and m['mtype'] = 'NAM' and m['text'] =~ /\A([A-Z][a-z]+\s?){2,4}\Z/ }.map {|m| m['text'] }
+          names = relext['doc']['mentions']['mention'].select {|m| m['role'] == 'PERSON' and m['mtype'] = 'NAM' and m['text'] =~ /\A([A-Z][a-z]+\s?){2,4}\Z/ }.map {|m| m['text'] } rescue []
           names.each do |name|
             checked_name = check_name!(name, redis, token)
             if checked_name and checked_name != 'false'
