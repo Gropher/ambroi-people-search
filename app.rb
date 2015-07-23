@@ -86,8 +86,10 @@ def cognitive_search query, redis, token
     results = JSON.parse(redis.get md5) rescue empty_results
     unless results['status'] == 'finished'
       results = empty_results
-      yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1")
-      urls = yandex['yandexsearch']['response']['results']['grouping']['group'].map {|doc| doc['doc']['url'] }
+      #yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1")
+      #urls = yandex['yandexsearch']['response']['results']['grouping']['group'].map {|doc| doc['doc']['url'] }
+      bing = Hash.from_xml(RestClient::Request.new(method: :get, user: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', password: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', url: "https://api.datamarket.azure.com/Bing/Search/v1/Web?Query=%27#{ERB::Util.url_encode query}%27").execute)
+      urls = bing['feed']['entry'].map {|entry| entry['content']['properties']['Url'] }
       urls.each do |url| 
         redis.lpush 'relext_requests', { url: url, token: token }.to_json
       end
@@ -109,7 +111,7 @@ def cognitive_search query, redis, token
           results['results'][name] << url
           results['results'][name] = results['results'][name].uniq
         end
-        results['progress'] = results['progress'].to_i + 1
+        results['progress'] = results['progress'].to_i + 2
         log "'#{query}' search progress is #{results['progress']}%"
         redis.setex(md5, 24*3600, results.to_json)
       end
