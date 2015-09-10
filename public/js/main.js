@@ -72,7 +72,7 @@ function search() {
             $.each(value['links'], function(j, link) {
               links = links + '<li><a target="_blank" href="'+link+'">'+link+'</a></li>'
             });
-            $('.results').append('<li class="list-group-item"><strong><a target="_blank" class="black-link" href="https://www.yandex.ru/yandsearch?text='+value['name']+'">'+value['name']+'</a></strong><span class="badge">'+value['links'].length+'</span><ul>'+links+'</ul></li>');
+            $('.results').append('<li class="list-group-item"><strong><a target="_blank" class="black-link" href="https://www.bing.com/search?q='+value['name']+'">'+value['name']+'</a></strong><span class="badge">'+value['links'].length+'</span><ul>'+links+'</ul></li>');
           }); 
         });
       },5000);

@@ -4,7 +4,8 @@ require 'koala'
 require 'redis'
 require 'rest-client'
 require 'active_support/all'
-require 'sanitize'
+#require 'sanitize'
+require 'extractcontent'
 
 
 REDIS_CONFIG={ host: '127.0.0.1', port: '6379', db: 1 }
@@ -86,10 +87,13 @@ def cognitive_search query, redis, token
     results = JSON.parse(redis.get md5) rescue empty_results
     unless results['status'] == 'finished'
       results = empty_results
-      #yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1")
-      #urls = yandex['yandexsearch']['response']['results']['grouping']['group'].map {|doc| doc['doc']['url'] }
-      bing = Hash.from_xml(RestClient::Request.new(method: :get, user: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', password: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', url: "https://api.datamarket.azure.com/Bing/Search/v1/Web?Query=%27#{ERB::Util.url_encode query}%27").execute)
-      urls = bing['feed']['entry'].map {|entry| entry['content']['properties']['Url'] }
+      sites=%w(forbes.com expert.ru vedomosti.ru reuters.com bloomberg.com c5-online.com adamsmithconferences.com buildinghealthcarerussia.com euromoneyseminars.com infrastructureinvestor.com russianretailforum.com europetro.com russianautomotive.com autoinvest-russia.ru russianpharma.com)
+      yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1&site=#{ERB::Util.url_encode sites.join(',')}")
+      urls = yandex['yandexsearch']['response']['results']['grouping']['group'].map {|doc| doc['doc']['url'] }
+      #bing1 = Hash.from_xml(RestClient::Request.new(method: :get, user: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', password: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', url: "https://api.datamarket.azure.com/Bing/Search/v1/Web?Query=%27#{ERB::Util.url_encode query}%27").execute)
+      #bing2 = Hash.from_xml(RestClient::Request.new(method: :get, user: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', password: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', url: "https://api.datamarket.azure.com/Bing/Search/v1/Web?Query=%27#{ERB::Util.url_encode query}%27&$skip=51").execute)
+      #urls = bing1['feed']['entry'].map {|entry| entry['content']['properties']['Url'] }
+      #urls += bing2['feed']['entry'].map {|entry| entry['content']['properties']['Url'] }
       urls.each do |url| 
         redis.lpush 'relext_requests', { url: url, token: token }.to_json
       end
@@ -111,7 +115,7 @@ def cognitive_search query, redis, token
           results['results'][name] << url
           results['results'][name] = results['results'][name].uniq
         end
-        results['progress'] = results['progress'].to_i + 2
+        results['progress'] = results['progress'].to_i + 1
         log "'#{query}' search progress is #{results['progress']}%"
         redis.setex(md5, 24*3600, results.to_json)
       end
@@ -178,7 +182,8 @@ def get_relext url, redis, token
     content_type = RestClient.head(url).headers[:content_type] rescue nil
     if content_type.to_s =~ /text\/html/
       text = RestClient.get(url) rescue nil
-      text = CGI.unescapeHTML(Sanitize.fragment(text.to_s, remove_contents: [:link, :style, :script]).squish) rescue nil
+      #text = CGI.unescapeHTML(Sanitize.fragment(text.to_s, remove_contents: [:link, :style, :script]).squish) rescue nil
+      text, title = ExtractContent.analyse(text.to_s) rescue nil
       relext = if text
         JSON.parse(RestClient.post("http://ambroi.eu-gb.mybluemix.net/say/relext", text: text[0..10000])) rescue nil
       end
