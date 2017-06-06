@@ -4,15 +4,16 @@ require 'koala'
 require 'redis'
 require 'rest-client'
 require 'active_support/all'
-#require 'sanitize'
-require 'extractcontent'
 
 
-REDIS_CONFIG={ host: '127.0.0.1', port: '6379', db: 1 }
+#REDIS_CONFIG={ host: '127.0.0.1', port: '6379', db: 1 }
+REDIS_CONFIG={ host: '127.0.0.1', port: '32001', db: 1 }
 
 configure do
   set :redis, Redis.new(REDIS_CONFIG)
-  (1..3).each do |i|
+  set :port, 3000
+  set :bind, '0.0.0.0'
+  (1..5).each do |i|
     Thread.new do
       redis = Redis.new(REDIS_CONFIG)
       log "Search Thread ##{i} started" 
@@ -30,20 +31,20 @@ configure do
       end
     end
   end
-  (1..4).each do |i|
+  (1..3).each do |i|
     Thread.new do
       redis = Redis.new(REDIS_CONFIG)
-      log "RelExt Thread ##{i} started" 
+      log "linkedin_profile Thread ##{i} started" 
       loop do
-        query = redis.brpop('relext_requests').last
+        query = redis.brpop('linkedin_profile_requests').last
         begin
-          log "RelExt Thread ##{i} processing query: #{query}"
+          log "linkedin_profile Thread ##{i} processing query: #{query}"
           parsed_query = JSON.parse query
-          get_relext parsed_query['url'], redis, parsed_query['token']
-          log "RelExt Thread ##{i} finished query: #{query}"
+          get_linkedin_profile parsed_query['url'], redis, parsed_query['token']
+          log "linkedin_profile Thread ##{i} finished query: #{query}"
         rescue => e
-          log "RelExt Thread ##{i} can't process query #{query}: #{$!}"
-          puts "RelExt Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
+          log "linkedin_profile Thread ##{i} can't process query #{query}: #{$!}"
+          puts "linkedin_profile Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
         end
       end
     end
@@ -72,9 +73,6 @@ get '/search_results' do
   if query.present?
     md5 = "results_#{Digest::MD5.hexdigest query}"
     results = JSON.parse(redis.get md5) rescue empty_results
-    results['results'] = results['results'].map do |name, links|
-      { name: name, links: links }
-    end.compact.to_a.sort {|a,b| b[:links].count <=> a[:links].count } 
     { data: results }.to_json
   else
     { error: 'blank_query' }.to_json
@@ -87,40 +85,31 @@ def cognitive_search query, redis, token
     results = JSON.parse(redis.get md5) rescue empty_results
     unless results['status'] == 'finished'
       results = empty_results
-      sites=%w(forbes.com expert.ru vedomosti.ru reuters.com bloomberg.com c5-online.com adamsmithconferences.com buildinghealthcarerussia.com euromoneyseminars.com infrastructureinvestor.com russianretailforum.com europetro.com russianautomotive.com autoinvest-russia.ru russianpharma.com)
-      yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1&site=#{ERB::Util.url_encode sites.join(',')}")
+      yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1&site=linkedin.com/in")
       urls = yandex['yandexsearch']['response']['results']['grouping']['group'].map {|doc| doc['doc']['url'] }
-      #bing1 = Hash.from_xml(RestClient::Request.new(method: :get, user: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', password: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', url: "https://api.datamarket.azure.com/Bing/Search/v1/Web?Query=%27#{ERB::Util.url_encode query}%27").execute)
-      #bing2 = Hash.from_xml(RestClient::Request.new(method: :get, user: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', password: 'jwfLL9LmmODyFTYKuXl/hMLcOW4k+MJsr/Ethe4HmMA', url: "https://api.datamarket.azure.com/Bing/Search/v1/Web?Query=%27#{ERB::Util.url_encode query}%27&$skip=51").execute)
-      #urls = bing1['feed']['entry'].map {|entry| entry['content']['properties']['Url'] }
-      #urls += bing2['feed']['entry'].map {|entry| entry['content']['properties']['Url'] }
       urls.each do |url| 
-        redis.lpush 'relext_requests', { url: url, token: token }.to_json
+        redis.lpush 'linkedin_profile_requests', { url: url, token: token }.to_json
       end
       urls.each do |url|
-        relext = nil
+        linkedin_profile = nil
         loop do 
-          relext = redis.get "relext_#{Digest::MD5.hexdigest url}"
-          if relext
-	    log "'#{query}' search got RelExt for #{url}"
+          linkedin_profile = redis.get "linkedin_profile_#{Digest::MD5.hexdigest url}"
+          if linkedin_profile
+            log "'#{query}' search got linkedin profile for #{url}"
             break
           else
-	    log "'#{query}' search is waiting for RelExt for #{url}"
+            log "'#{query}' search is waiting for linkedin profile for #{url}"
             sleep 5
           end
         end
-        relext = JSON.parse relext
-        relext.each do |name|
-          results['results'][name] ||= []
-          results['results'][name] << url
-          results['results'][name] = results['results'][name].uniq
-        end
+        linkedin_profile = JSON.parse linkedin_profile
+        results['results'] << linkedin_profile if linkedin_profile.present?
         results['progress'] = results['progress'].to_i + 1
         log "'#{query}' search progress is #{results['progress']}%"
         redis.setex(md5, 24*3600, results.to_json)
       end
       results['status'] = 'finished'
-      redis.setex(md5, 24*3600, results.to_json)
+      redis.setex(md5, 3600, results.to_json)
     end
   end
 end
@@ -176,31 +165,28 @@ def levenshtein_distance(a, b)
   costs[b.length]
 end
 
-def get_relext url, redis, token
-  md5 = "relext_#{Digest::MD5.hexdigest url}"
+def get_linkedin_profile url, redis, token
+  md5 = "linkedin_profile_#{Digest::MD5.hexdigest url}"
   unless redis.exists md5
-    content_type = RestClient.head(url).headers[:content_type] rescue nil
-    if content_type.to_s =~ /text\/html/
-      text = RestClient.get(url) rescue nil
-      #text = CGI.unescapeHTML(Sanitize.fragment(text.to_s, remove_contents: [:link, :style, :script]).squish) rescue nil
-      text, title = ExtractContent.analyse(text.to_s) rescue nil
-      relext = if text
-        JSON.parse(RestClient.post("http://ambroi.eu-gb.mybluemix.net/say/relext", text: text[0..10000])) rescue nil
+    token='AQX1p2vj4IDUjF3d11V3-CJqVOh1ldr-DX71_GkVDpEuphMrt6x3NCqnse2LI8PBR9bWZNw6P5UqpboUfP656b_1K8h8Jp31FoYCnb98u4_Ea9sKi_l54Vq5_5n2FSiYGqHyqJdPrReikm89TnLTfzY0QTtxtoXVJvuBDmXNlfiRXBLTbz4'
+    url = "https://api.linkedin.com/v1/people/#{ {url: url}.to_query }:(id,first-name,last-name,location:(name),headline,summary,positions,specialties,educations,skills,industry,picture-url,public-profile-url)?#{ {oauth2_access_token: token}.to_query }"
+    linkedin_profile = Hash.from_xml(RestClient.get(url))['person'] rescue nil
+    if linkedin_profile
+      name = "#{linkedin_profile['first_name']} #{linkedin_profile['last_name']}"
+      log "LinkedIn profile checking name #{name}"
+      checked_name = begin
+        check_name!(name, redis, token) 
+      rescue
+        log "LinkedIn profile Facebook Error while checking name #{name}" 
+        name
       end
-      relext = relext['doc']['mentions']['mention'].select {|m| m['role'] == 'PERSON' and m['mtype'] == 'NAM' and m['text'] =~ /\A([A-Z][a-z]+\s?){2,4}\Z/ }.map {|m| m['text'] } rescue []
-        relext = relext.map do |name|
-          log "RelExt checking name #{name}"
-          checked_name = begin
-            check_name!(name, redis, token) 
-          rescue
-            log "RelExt Facebook Error while checking name #{name}" 
-            name
-          end
-          checked_name if checked_name != false and checked_name != 'false'
-        end.compact
-      redis.setex(md5, 30*24*3600, relext.to_json)
+      if checked_name != false and checked_name != 'false'
+        redis.setex(md5, 30*24*3600, linkedin_profile.to_json)
+      else
+        redis.setex(md5, 24*3600, [].to_json)
+      end
     else
-      redis.setex(md5, 30*24*3600, [].to_json)
+      redis.setex(md5, 24*3600, [].to_json)
     end
   end
 end
@@ -215,7 +201,7 @@ def log msg
 end
 
 def empty_results
-  { 'status' => 'in_progress', 'results' => {}, 'progress' => 0 }.dup
+  { 'status' => 'in_progress', 'results' => [], 'progress' => 0 }.dup
 end
 
 def redis

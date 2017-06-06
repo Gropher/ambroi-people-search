@@ -68,11 +68,16 @@ function search() {
           }
           $('.results').html('');
           $.each(results['results'], function(i, value) {
-            links = '';
-            $.each(value['links'], function(j, link) {
-              links = links + '<li><a target="_blank" href="'+link+'">'+link+'</a></li>'
-            });
-            $('.results').append('<li class="list-group-item"><strong><a target="_blank" class="black-link" href="https://www.bing.com/search?q='+value['name']+'">'+value['name']+'</a></strong><span class="badge">'+value['links'].length+'</span><ul>'+links+'</ul></li>');
+            $('.results').append(
+              '<li class="list-group-item">' + 
+                '<strong>' + 
+                  '<a target="_blank" class="black-link" href="' + value.public_profile_url + '">' +
+                    '<img src="' + value.picture_url + '" />'+
+                    value.first_name + ' ' + value.last_name +
+                  '</a>' + 
+                '</strong>' + 
+              '</li>'
+            );
           }); 
         });
       },5000);
