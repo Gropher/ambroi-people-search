@@ -6,13 +6,10 @@ require 'rest-client'
 require 'active_support/all'
 
 
-#REDIS_CONFIG={ host: '127.0.0.1', port: '6379', db: 1 }
-REDIS_CONFIG={ host: '127.0.0.1', port: '32001', db: 1 }
+REDIS_CONFIG={ host: '127.0.0.1', port: '6379', db: 1 }
 
 configure do
   set :redis, Redis.new(REDIS_CONFIG)
-  set :port, 3000
-  set :bind, '0.0.0.0'
   (1..5).each do |i|
     Thread.new do
       redis = Redis.new(REDIS_CONFIG)
@@ -26,25 +23,25 @@ configure do
           log "Search Thread ##{i} finished query: #{query}"
         rescue => e
           log "Search Thread ##{i} can't process query #{query}: #{$!}"
-          puts "Search Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
+          log "Search Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
         end
       end
     end
   end
-  (1..3).each do |i|
+  (1..1).each do |i|
     Thread.new do
       redis = Redis.new(REDIS_CONFIG)
-      log "linkedin_profile Thread ##{i} started" 
+      log "LinkedIn profile Thread ##{i} started" 
       loop do
         query = redis.brpop('linkedin_profile_requests').last
         begin
-          log "linkedin_profile Thread ##{i} processing query: #{query}"
+          log "LinkedIn profile Thread ##{i} processing query: #{query}"
           parsed_query = JSON.parse query
           get_linkedin_profile parsed_query['url'], redis, parsed_query['token']
-          log "linkedin_profile Thread ##{i} finished query: #{query}"
+          log "LinkedIn profile Thread ##{i} finished query: #{query}"
         rescue => e
-          log "linkedin_profile Thread ##{i} can't process query #{query}: #{$!}"
-          puts "linkedin_profile Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
+          log "LinkedIn profile Thread ##{i} can't process query #{query}: #{$!}"
+          log "LinkedIn profile Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
         end
       end
     end
@@ -115,6 +112,7 @@ def cognitive_search query, redis, token
 end
 
 def check_name! name, redis, token
+  return false if name == 'private private'
   md5 = "is_a_name_#{Digest::MD5.hexdigest name}"
   if redis.exists(md5)
     redis.get(md5)
@@ -143,7 +141,7 @@ def check_name! name, redis, token
                                  ["#{parts[2]} #{parts[3]}", fb_names3]
                                end
                              end
-    if fb_names.present? and fb_names.map {|fb_name| levenshtein_distance checked_name, fb_name['name'] }.min < 2
+    if fb_names.any? and fb_names.map {|fb_name| levenshtein_distance checked_name, fb_name['name'] }.min < 2
       redis.setex(md5, 30*24*3600, checked_name)
       checked_name
     else
@@ -168,8 +166,8 @@ end
 def get_linkedin_profile url, redis, token
   md5 = "linkedin_profile_#{Digest::MD5.hexdigest url}"
   unless redis.exists md5
-    token='AQX1p2vj4IDUjF3d11V3-CJqVOh1ldr-DX71_GkVDpEuphMrt6x3NCqnse2LI8PBR9bWZNw6P5UqpboUfP656b_1K8h8Jp31FoYCnb98u4_Ea9sKi_l54Vq5_5n2FSiYGqHyqJdPrReikm89TnLTfzY0QTtxtoXVJvuBDmXNlfiRXBLTbz4'
-    url = "https://api.linkedin.com/v1/people/#{ {url: url}.to_query }:(id,first-name,last-name,location:(name),headline,summary,positions,specialties,educations,skills,industry,picture-url,public-profile-url)?#{ {oauth2_access_token: token}.to_query }"
+    lntoken='AQX5Jy-pCgvvtS9WvTaShHWykvjg_M2Gppj2QDAmRkJ1-yOiooFm9Mpx2ljTi182o8z7EJaYGgB5lhJR2lBahc2LNE-mCRRHcTh6I1xVX8aOSTSUxOTi8eQ0QCQnpPCv4Rn8AJzTbAbMmL3-oVphd8dvA_RKfUReUfQAtU80K5bREDUN5Ys'
+    url = "https://api.linkedin.com/v1/people/#{ {url: url}.to_query }:(id,first-name,last-name,location:(name),headline,summary,positions,specialties,educations,skills,industry,picture-url,public-profile-url)?#{ {oauth2_access_token: lntoken}.to_query }"
     linkedin_profile = Hash.from_xml(RestClient.get(url))['person'] rescue nil
     if linkedin_profile
       name = "#{linkedin_profile['first_name']} #{linkedin_profile['last_name']}"
@@ -178,7 +176,7 @@ def get_linkedin_profile url, redis, token
         check_name!(name, redis, token) 
       rescue
         log "LinkedIn profile Facebook Error while checking name #{name}" 
-        name
+        true
       end
       if checked_name != false and checked_name != 'false'
         redis.setex(md5, 30*24*3600, linkedin_profile.to_json)

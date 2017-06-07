@@ -62,20 +62,25 @@ function search() {
             $('.searching-button').hide();
             spinner.stop();
             clearInterval(interval_id);
+            if(results['results'].length == 0){
+              $('.results').html('<i>nothing found</i>');
+            }
           }
           if(results['progress'] > 0) {
             $('.searching-button').html('Searching... ('+results['progress']+'%)');
           }
-          $('.results').html('');
+	    $('.results').html('');
           $.each(results['results'], function(i, value) {
             $('.results').append(
               '<li class="list-group-item">' + 
                 '<strong>' + 
                   '<a target="_blank" class="black-link" href="' + value.public_profile_url + '">' +
-                    '<img src="' + value.picture_url + '" />'+
+                    '<img width="80px" height="80px" src="' + (value.picture_url || '/img/default_avatar.png') + '" />'+
                     value.first_name + ' ' + value.last_name +
                   '</a>' + 
                 '</strong>' + 
+		'<br><i>' + value.headline + '</i>' +
+		'<br><i>' + value.location.name + '</i>' +
               '</li>'
             );
           }); 
