@@ -40,13 +40,14 @@
               <input id="search-query" name="q" type="search" class="form-control" placeholder="environment remediation">
             </div>
             <button type="submit" class="btn btn-success col-sm-2 search-button">Search</button>
-            <button type="submit" class="btn btn-warning col-sm-2 searching-button" disabled="disabled">Searching...</button>
+            <button type="submit" class="btn btn-warning col-sm-2 searching-button" disabled="disabled">
+	       <span class="searching-button-inner">Searching...</span>
+               <!--div class='spinner'> </div-->
+	    </button>
           </div>
         </form>
         <div class='results-container'>
           <ul class='results list-group'></ul>
-        </div>
-        <div class='spinner'>
         </div>
       </div>
 

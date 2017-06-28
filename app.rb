@@ -7,6 +7,7 @@ require 'active_support/all'
 
 
 REDIS_CONFIG={ host: '127.0.0.1', port: '6379', db: 1 }
+TOKEN="AQU8gjMU39rgm1FONMyADYLtF7lkUTU9-PugomyvpFKi4-UurkhbtG9TT0TfMAp73KmyisI84RetiWJQkUPaem4UjNlAN0kWfqzAEkz8d6eaJqtb6wbsHZ4qnQoGMWy8OximX2IySibZdksyywmJyZcx_tNvbnxfstMlqFZ_mPoZiClU6ZU"
 
 configure do
   set :redis, Redis.new(REDIS_CONFIG)
@@ -166,17 +167,36 @@ end
 def get_linkedin_profile url, redis, token
   md5 = "linkedin_profile_#{Digest::MD5.hexdigest url}"
   unless redis.exists md5
-    lntoken='AQX5Jy-pCgvvtS9WvTaShHWykvjg_M2Gppj2QDAmRkJ1-yOiooFm9Mpx2ljTi182o8z7EJaYGgB5lhJR2lBahc2LNE-mCRRHcTh6I1xVX8aOSTSUxOTi8eQ0QCQnpPCv4Rn8AJzTbAbMmL3-oVphd8dvA_RKfUReUfQAtU80K5bREDUN5Ys'
-    url = "https://api.linkedin.com/v1/people/#{ {url: url}.to_query }:(id,first-name,last-name,location:(name),headline,summary,positions,specialties,educations,skills,industry,picture-url,public-profile-url)?#{ {oauth2_access_token: lntoken}.to_query }"
-    linkedin_profile = Hash.from_xml(RestClient.get(url))['person'] rescue nil
+    sleep 5
+    url = "https://api.linkedin.com/v1/people/#{ {url: url}.to_query }:(id,first-name,last-name,location:(name),headline,summary,positions,specialties,educations,skills,industry,picture-url,public-profile-url)?#{ {oauth2_access_token: TOKEN}.to_query }"
+    linkedin_profile = begin
+      Hash.from_xml(RestClient.get(url))['person']
+    rescue => e
+      log "get_linkedin_profile error: #{$!}"
+      log "get_linkedin_profile backtrace:\n\t#{e.backtrace.join("\n\t")}"
+      nil
+    end
     if linkedin_profile
       name = "#{linkedin_profile['first_name']} #{linkedin_profile['last_name']}"
       log "LinkedIn profile checking name #{name}"
       checked_name = begin
-        check_name!(name, redis, token) 
+        if name == 'private private'
+          if url =~ /linkedin\.com\/in\//
+            full_name = url.split('/').last
+	    linkedin_profile['first_name'] = full_name.split('-')[0]
+	    linkedin_profile['last_name'] = full_name.split('-')[1]
+	    linkedin_profile['location'] = { name: 'private' }
+	    linkedin_profile['public_profile_url'] = url
+            true
+	  else
+	    false
+          end
+        else
+	  check_name!(name, redis, token) 
+        end
       rescue
         log "LinkedIn profile Facebook Error while checking name #{name}" 
-        true
+        false
       end
       if checked_name != false and checked_name != 'false'
         redis.setex(md5, 30*24*3600, linkedin_profile.to_json)
