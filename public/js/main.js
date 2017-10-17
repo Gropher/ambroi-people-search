@@ -51,7 +51,7 @@ function search() {
   $('.search-button').hide();
   $('.searching-button').show();
   $('.results').html('');
-  $('.searching-button').html('Searching...');
+  $('.searching-button-inner').html('Searching...');
   $.post('/search', {q: query}, function(data){
     if(JSON.parse(data)['data'] == 'success'){
       interval_id = setInterval(function(){
@@ -67,7 +67,7 @@ function search() {
             }
           }
           if(results['progress'] > 0) {
-            $('.searching-button').html('Searching... ('+results['progress']+'%)');
+            $('.searching-button-inner').html('Searching... ('+results['progress']+'%)');
           }
 	    $('.results').html('');
           $.each(results['results'], function(i, value) {

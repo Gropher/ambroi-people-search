@@ -7,6 +7,7 @@ require 'active_support/all'
 
 
 REDIS_CONFIG={ host: (ENV['REDIS_HOST'] || 'redis'), port: (ENV['REDIS_PORT'] || '6379'), db: (ENV['REDIS_DB'] || 1) }
+TOKEN="AQW9x_7wMRkL7GrB31QxYduLMp24XOJU3ZVjU48JLI2SMwNAWWO91Nfh2mtxuVGAxD3S8rCOTwE00pwuoqzOzruZb1QmSiTJwbdJmcwpQI_WhUW176ur7ShMBZPgLJGQox5rxLao1nWNvvE_dYBPi_04zI8Ecc9LmcfwYh0YHw5q51a75NM"
 
 configure do
   set :redis, Redis.new(REDIS_CONFIG)
@@ -165,23 +166,50 @@ def levenshtein_distance(a, b)
   costs[b.length]
 end
 
-def get_linkedin_profile url, redis, token
-  md5 = "linkedin_profile_#{Digest::MD5.hexdigest url}"
+def get_linkedin_profile profile_url, redis, token
+  md5 = "linkedin_profile_#{Digest::MD5.hexdigest profile_url}"
   unless redis.exists md5
-    lntoken='AQW9x_7wMRkL7GrB31QxYduLMp24XOJU3ZVjU48JLI2SMwNAWWO91Nfh2mtxuVGAxD3S8rCOTwE00pwuoqzOzruZb1QmSiTJwbdJmcwpQI_WhUW176ur7ShMBZPgLJGQox5rxLao1nWNvvE_dYBPi_04zI8Ecc9LmcfwYh0YHw5q51a75NM'
-    url = "https://api.linkedin.com/v1/people/#{ {url: url}.to_query }:(id,first-name,last-name,location:(name),headline,summary,positions,specialties,educations,skills,industry,picture-url,public-profile-url)?#{ {oauth2_access_token: lntoken}.to_query }"
-    linkedin_profile = Hash.from_xml(RestClient.get(url))['person'] rescue nil
+    url = profile_url.split('?').first.gsub('/people/url=', '')
+    url = "https://api.linkedin.com/v1/people/#{ {url: url}.to_query }:(id,first-name,last-name,location:(name),headline,summary,positions,specialties,educations,skills,industry,picture-url,public-profile-url)?#{ {oauth2_access_token: TOKEN}.to_query }"
+    linkedin_profile = begin
+      Hash.from_xml(RestClient.get(url))['person']
+    rescue => e
+      log "get_linkedin_profile error: #{$!}"
+      log "get_linkedin_profile backtrace:\n\t#{e.backtrace.join("\n\t")}"
+      if e.http_code == 403
+        { 'id' => 'forbidden', 'first_name' => 'forbidden', 'last_name' => 'forbidden' }
+      else
+        nil
+      end
+    end
     if linkedin_profile
       name = "#{linkedin_profile['first_name']} #{linkedin_profile['last_name']}"
       checked_name = begin
-        check_name!(name, redis, token) 
-      rescue
-        #log "!!!!! FACEBOOK ERROR: #{name}" 
-        true
-      end
-      #log "Facebook checking: #{name} / #{checked_name}"
+                       if name == 'private private' or name == 'forbidden forbidden'
+                         if profile_url =~ /linkedin\.com\/in\//
+                           full_name = profile_url.split('/').last
+                           linkedin_profile['headline'] = linkedin_profile['id']
+                           linkedin_profile['location'] = { 'name' => linkedin_profile['id'] }
+                           linkedin_profile['first_name'] = full_name.split('-')[0].to_s
+                           linkedin_profile['last_name'] = full_name.split('-')[1].to_s
+                           linkedin_profile['public_profile_url'] = profile_url
+                           true
+                         else
+                           false
+                         end
+                       else
+                         check_name!(name, redis, token) 
+                       end
+                     rescue
+                       #log "Facebook checking: #{name} / #{checked_name}"
+                       true
+                     end
       if checked_name != false and checked_name != 'false'
-        redis.setex(md5, 30*24*3600, linkedin_profile.to_json)
+        if linkedin_profile['id'] == 'forbidden'
+          redis.setex(md5, 24*3600, linkedin_profile.to_json)
+        else
+          redis.setex(md5, 30*24*3600, linkedin_profile.to_json)
+        end
       else
         redis.setex(md5, 24*3600, [].to_json)
       end
