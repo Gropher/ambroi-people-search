@@ -6,24 +6,24 @@ require 'rest-client'
 require 'active_support/all'
 
 
-REDIS_CONFIG={ host: '127.0.0.1', port: '6379', db: 1 }
+REDIS_CONFIG={ host: (ENV['REDIS_HOST'] || 'redis'), port: (ENV['REDIS_PORT'] || '6379'), db: (ENV['REDIS_DB'] || 1) }
 
 configure do
   set :redis, Redis.new(REDIS_CONFIG)
-  (1..5).each do |i|
+  (1..1).each do |i|
     Thread.new do
       redis = Redis.new(REDIS_CONFIG)
-      log "Search Thread ##{i} started" 
+      log "S##{i} started" 
       loop do
         query = redis.brpop('queries').last
         begin
-          log "Search Thread ##{i} processing query: #{query}"
-          parsed_query = JSON.parse query
+          log "S##{i} start: #{query}"
+          parsed_query = JSON.parse query, quirks_mode: true
           cognitive_search parsed_query['query'], redis, parsed_query['token']
-          log "Search Thread ##{i} finished query: #{query}"
+          log "S##{i} finish: #{query}"
         rescue => e
-          log "Search Thread ##{i} can't process query #{query}: #{$!}"
-          log "Search Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
+          log "!!!!! S##{i} ERROR #{query}: #{$!}"
+          log "!!!!! S##{i} BACKTRACE:\n\t#{e.backtrace.join("\n\t")}"
         end
       end
     end
@@ -35,13 +35,14 @@ configure do
       loop do
         query = redis.brpop('linkedin_profile_requests').last
         begin
-          log "LinkedIn profile Thread ##{i} processing query: #{query}"
-          parsed_query = JSON.parse query
+          #log "L##{i} start: #{query}"
+          parsed_query = JSON.parse query, quirks_mode: true
           get_linkedin_profile parsed_query['url'], redis, parsed_query['token']
-          log "LinkedIn profile Thread ##{i} finished query: #{query}"
+          sleep 5
+          #log "L##{i} finish: #{query}"
         rescue => e
-          log "LinkedIn profile Thread ##{i} can't process query #{query}: #{$!}"
-          log "LinkedIn profile Thread ##{i} backtrace:\n\t#{e.backtrace.join("\n\t")}"
+          log "!!!!! L##{i} ERROR #{query}: #{$!}"
+          log "!!!!! L##{i} BACKTRACE:\n\t#{e.backtrace.join("\n\t")}"
         end
       end
     end
@@ -69,7 +70,7 @@ get '/search_results' do
   query = normalize_query params[:q]
   if query.present?
     md5 = "results_#{Digest::MD5.hexdigest query}"
-    results = JSON.parse(redis.get md5) rescue empty_results
+    results = JSON.parse(redis.get(md5), quirks_mode: true) rescue empty_results
     { data: results }.to_json
   else
     { error: 'blank_query' }.to_json
@@ -79,7 +80,7 @@ end
 def cognitive_search query, redis, token
   if query
     md5 = "results_#{Digest::MD5.hexdigest query}"
-    results = JSON.parse(redis.get md5) rescue empty_results
+    results = JSON.parse(redis.get(md5), quirks_mode: true) rescue empty_results
     unless results['status'] == 'finished'
       results = empty_results
       yandex = Hash.from_xml RestClient.get("https://yandex.com/search/xml?user=grophen&key=03.43282533:5e955fb84f7bf3dddd1ab1b14cc6eaa9&query=#{ERB::Util.url_encode query}&l10n=en&sortby=rlv&filter=moderate&groupby=attr%3D%22%22.mode%3Dflat.groups-on-page%3D100.docs-in-group%3D1&site=linkedin.com/in")
@@ -92,14 +93,14 @@ def cognitive_search query, redis, token
         loop do 
           linkedin_profile = redis.get "linkedin_profile_#{Digest::MD5.hexdigest url}"
           if linkedin_profile
-            log "'#{query}' search got linkedin profile for #{url}"
+            log "'#{query}' search got linkedin profile for #{url} / #{linkedin_profile}"
             break
           else
-            log "'#{query}' search is waiting for linkedin profile for #{url}"
-            sleep 5
+            #log "'#{query}' search is waiting for linkedin profile for #{url}"
+            sleep 10
           end
         end
-        linkedin_profile = JSON.parse linkedin_profile
+        linkedin_profile = JSON.parse linkedin_profile, quirks_mode: true
         results['results'] << linkedin_profile if linkedin_profile.present?
         results['progress'] = results['progress'].to_i + 1
         log "'#{query}' search progress is #{results['progress']}%"
@@ -113,6 +114,7 @@ end
 
 def check_name! name, redis, token
   return false if name == 'private private'
+  return true
   md5 = "is_a_name_#{Digest::MD5.hexdigest name}"
   if redis.exists(md5)
     redis.get(md5)
@@ -166,18 +168,18 @@ end
 def get_linkedin_profile url, redis, token
   md5 = "linkedin_profile_#{Digest::MD5.hexdigest url}"
   unless redis.exists md5
-    lntoken='AQX5Jy-pCgvvtS9WvTaShHWykvjg_M2Gppj2QDAmRkJ1-yOiooFm9Mpx2ljTi182o8z7EJaYGgB5lhJR2lBahc2LNE-mCRRHcTh6I1xVX8aOSTSUxOTi8eQ0QCQnpPCv4Rn8AJzTbAbMmL3-oVphd8dvA_RKfUReUfQAtU80K5bREDUN5Ys'
+    lntoken='AQW9x_7wMRkL7GrB31QxYduLMp24XOJU3ZVjU48JLI2SMwNAWWO91Nfh2mtxuVGAxD3S8rCOTwE00pwuoqzOzruZb1QmSiTJwbdJmcwpQI_WhUW176ur7ShMBZPgLJGQox5rxLao1nWNvvE_dYBPi_04zI8Ecc9LmcfwYh0YHw5q51a75NM'
     url = "https://api.linkedin.com/v1/people/#{ {url: url}.to_query }:(id,first-name,last-name,location:(name),headline,summary,positions,specialties,educations,skills,industry,picture-url,public-profile-url)?#{ {oauth2_access_token: lntoken}.to_query }"
     linkedin_profile = Hash.from_xml(RestClient.get(url))['person'] rescue nil
     if linkedin_profile
       name = "#{linkedin_profile['first_name']} #{linkedin_profile['last_name']}"
-      log "LinkedIn profile checking name #{name}"
       checked_name = begin
         check_name!(name, redis, token) 
       rescue
-        log "LinkedIn profile Facebook Error while checking name #{name}" 
+        #log "!!!!! FACEBOOK ERROR: #{name}" 
         true
       end
+      #log "Facebook checking: #{name} / #{checked_name}"
       if checked_name != false and checked_name != 'false'
         redis.setex(md5, 30*24*3600, linkedin_profile.to_json)
       else
@@ -194,7 +196,7 @@ def normalize_query query
 end
 
 def log msg
-  puts "#{Time.now} #{'='*20} #{msg}"
+  puts "#{Time.now} #{'='*10} #{msg}"
   STDOUT.flush
 end
 

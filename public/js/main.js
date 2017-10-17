@@ -80,7 +80,7 @@ function search() {
                   '</a>' + 
                 '</strong>' + 
 		'<br><i>' + value.headline + '</i>' +
-		'<br><i>' + value.location.name + '</i>' +
+		'<br><i>' + (value.location ? value.location.name : '') + '</i>' +
               '</li>'
             );
           }); 
