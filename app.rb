@@ -7,7 +7,7 @@ require 'active_support/all'
 
 
 REDIS_CONFIG={ host: (ENV['REDIS_HOST'] || 'redis'), port: (ENV['REDIS_PORT'] || '6379'), db: (ENV['REDIS_DB'] || 1) }
-TOKEN="AQW9x_7wMRkL7GrB31QxYduLMp24XOJU3ZVjU48JLI2SMwNAWWO91Nfh2mtxuVGAxD3S8rCOTwE00pwuoqzOzruZb1QmSiTJwbdJmcwpQI_WhUW176ur7ShMBZPgLJGQox5rxLao1nWNvvE_dYBPi_04zI8Ecc9LmcfwYh0YHw5q51a75NM"
+TOKEN="AQXQ6R053a88ejFgBqv68aoqTmiL-9hVZgXVPasMBag16HidZfO6ikRBluGyTO9OSNdb0yIjtz7q6p6UcDBpYkrBt06Ln7ApKFoYNnlz8e6QswDpmZq5dvOYQiuCo8VyiW9xcd1VL_2ceAZJj66d3WjZJW9yj2QUKyVYz153T1td01yj-uy-ZXLxQFzPvyaxATPgdqhRlevTGqzd7j1P9qvcltKVXDnDu3pJy3MehJ4W77nFJoGm6HQjrWWmMZiN7PvaymIreL_HLJKJWumAuYRIB2RWLNmj8_EcacLPlJHbimghbLeWed_IYJZJN92ykMxNrVA76rifAlcQ1k06WFJOtyoXjw"
 
 configure do
   set :redis, Redis.new(REDIS_CONFIG)
