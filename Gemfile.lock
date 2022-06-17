@@ -1,6 +1,6 @@
 GIT
-  remote: git://github.com/mono0x/extractcontent.git
-  revision: 62ff7a67a0c8f75f7be395f543050294cbbd37ab
+  remote: https://github.com/mono0x/extractcontent.git
+  revision: 6dc303ab5ad90ada73a8b63c29dc0b99591afabd
   specs:
     extractcontent (0.0.1)
 
@@ -14,6 +14,7 @@ GEM
       thread_safe (~> 0.3, >= 0.3.4)
       tzinfo (~> 1.1)
     addressable (2.3.8)
+    concurrent-ruby (1.1.10)
     crass (1.0.2)
     domain_name (0.5.24)
       unf (>= 0.0.5, < 1.0.0)
@@ -21,7 +22,8 @@ GEM
       multipart-post (>= 1.2, < 3)
     http-cookie (1.0.2)
       domain_name (~> 0.5)
-    i18n (0.7.0)
+    i18n (0.9.5)
+      concurrent-ruby (~> 1.0)
     json (1.8.3)
     koala (2.0.0)
       addressable
