@@ -1,6 +1,6 @@
 GIT
-  remote: git://github.com/mono0x/extractcontent.git
-  revision: 62ff7a67a0c8f75f7be395f543050294cbbd37ab
+  remote: https://github.com/mono0x/extractcontent.git
+  revision: 6dc303ab5ad90ada73a8b63c29dc0b99591afabd
   specs:
     extractcontent (0.0.1)
 
@@ -28,15 +28,17 @@ GEM
       faraday
       multi_json
     mime-types (2.6.1)
-    mini_portile (0.6.2)
+    mini_portile2 (2.8.0)
     minitest (5.7.0)
     multi_json (1.11.2)
     multipart-post (2.0.0)
     netrc (0.10.3)
-    nokogiri (1.6.6.2)
-      mini_portile (~> 0.6.0)
+    nokogiri (1.13.9)
+      mini_portile2 (~> 2.8.0)
+      racc (~> 1.4)
     nokogumbo (1.4.1)
       nokogiri
+    racc (1.6.0)
     rack (1.6.4)
     rack-protection (1.5.3)
       rack
